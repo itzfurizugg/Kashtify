@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Bendahara — Kas Kelas</title>
+  <meta name="description" content="Panel admin bendahara untuk mengelola kas kelas, verifikasi pembayaran, dan daftar siswa." />
+  <!-- Supabase JS -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- Inter font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --primary: #1A73E8;
+      --primary-dark: #0D47A1;
+      --secondary: #43A047;
+      --danger: #E53935;
+      --warning: #FB8C00;
+      --pending: #FDD835;
+      --bg: #F5F7FA;
+      --surface: #FFFFFF;
+      --text: #1A1A2E;
+      --muted: #6B7280;
+      --radius: 14px;
+      --shadow: 0 2px 12px rgba(0,0,0,.08);
+    }
+
+    body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+    /* ── Auth overlay ── */
+    #auth-overlay {
+      position: fixed; inset: 0; background: linear-gradient(135deg, var(--primary-dark), var(--primary));
+      display: flex; align-items: center; justify-content: center; z-index: 999;
+    }
+    .auth-card {
+      background: var(--surface); border-radius: 20px; padding: 40px 36px;
+      width: 100%; max-width: 380px; box-shadow: 0 24px 60px rgba(0,0,0,.2);
+    }
+    .auth-card h1 { font-size: 1.6rem; font-weight: 700; margin-bottom: 4px; color: var(--text); }
+    .auth-card p { color: var(--muted); margin-bottom: 28px; font-size: .9rem; }
+    .auth-card input {
+      width: 100%; padding: 12px 14px; border: 1.5px solid #e0e0e0; border-radius: 10px;
+      font-size: .95rem; font-family: inherit; outline: none; margin-bottom: 14px; transition: border .2s;
+    }
+    .auth-card input:focus { border-color: var(--primary); }
+    .auth-card button {
+      width: 100%; padding: 13px; background: var(--primary); color: #fff;
+      border: none; border-radius: 10px; font-size: 1rem; font-weight: 600;
+      cursor: pointer; transition: background .2s; font-family: inherit;
+    }
+    .auth-card button:hover { background: var(--primary-dark); }
+    #auth-error { color: var(--danger); font-size: .85rem; margin-top: 8px; display: none; }
+
+    /* ── Layout ── */
+    #app { display: none; flex-direction: row; min-height: 100vh; }
+
+    /* Sidebar */
+    .sidebar {
+      width: 240px; background: var(--surface); box-shadow: var(--shadow);
+      display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh;
+    }
+    .sidebar-logo {
+      padding: 24px 20px 16px;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    .sidebar-logo span { font-size: 1.2rem; font-weight: 700; color: var(--primary); }
+    .sidebar-logo small { display: block; color: var(--muted); font-size: .75rem; }
+    .nav-item {
+      display: flex; align-items: center; gap: 10px; padding: 12px 20px;
+      cursor: pointer; border-radius: 0; transition: background .15s, color .15s;
+      color: var(--muted); font-weight: 500; font-size: .9rem; border: none;
+      background: none; width: 100%; text-align: left; font-family: inherit;
+    }
+    .nav-item:hover { background: #F0F4FF; color: var(--primary); }
+    .nav-item.active { background: #E8F0FE; color: var(--primary); font-weight: 600; }
+    .nav-item .nav-icon { font-size: 1.1rem; width: 20px; text-align: center; }
+    .sidebar-footer { margin-top: auto; padding: 16px 20px; border-top: 1px solid #f0f0f0; }
+    #logout-btn {
+      width: 100%; padding: 10px; background: #FEE2E2; color: var(--danger);
+      border: none; border-radius: 10px; cursor: pointer; font-weight: 600;
+      font-family: inherit; font-size: .9rem; transition: background .2s;
+    }
+    #logout-btn:hover { background: #FCA5A5; }
+
+    /* Main */
+    .main { flex: 1; overflow-y: auto; }
+    .topbar {
+      background: var(--surface); padding: 18px 28px; box-shadow: var(--shadow);
+      display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 10;
+    }
+    .topbar h2 { font-size: 1.1rem; font-weight: 700; }
+    .topbar-user { font-size: .85rem; color: var(--muted); }
+    .badge {
+      background: var(--danger); color: white; border-radius: 999px;
+      font-size: .7rem; font-weight: 700; padding: 1px 7px; margin-left: 6px;
+    }
+
+    .content { padding: 24px 28px; }
+    .section { display: none; }
+    .section.active { display: block; }
+
+    /* Cards */
+    .card {
+      background: var(--surface); border-radius: var(--radius);
+      box-shadow: var(--shadow); padding: 20px; margin-bottom: 20px;
+    }
+    .card-title { font-weight: 700; font-size: 1rem; margin-bottom: 16px; color: var(--text); }
+
+    /* Summary grid */
+    .summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
+    .summary-card {
+      background: var(--surface); border-radius: var(--radius); padding: 20px;
+      box-shadow: var(--shadow); border-left: 4px solid;
+    }
+    .summary-card.saldo { border-color: var(--primary); }
+    .summary-card.masuk { border-color: var(--secondary); }
+    .summary-card.keluar { border-color: var(--danger); }
+    .summary-card .sc-label { font-size: .8rem; color: var(--muted); font-weight: 500; margin-bottom: 4px; }
+    .summary-card .sc-value { font-size: 1.4rem; font-weight: 700; }
+    .summary-card.saldo .sc-value { color: var(--primary); }
+    .summary-card.masuk .sc-value { color: var(--secondary); }
+    .summary-card.keluar .sc-value { color: var(--danger); }
+
+    /* Table */
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+    thead th { background: #F8FAFF; padding: 10px 14px; text-align: left; font-weight: 600; color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; }
+    tbody td { padding: 12px 14px; border-bottom: 1px solid #f5f5f5; vertical-align: middle; }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover { background: #FAFBFF; }
+    .empty-row td { text-align: center; color: var(--muted); padding: 32px; }
+
+    /* Badges */
+    .status-badge {
+      display: inline-block; padding: 3px 10px; border-radius: 999px;
+      font-size: .75rem; font-weight: 600;
+    }
+    .status-lunas { background: #E8F5E9; color: var(--secondary); }
+    .status-belum { background: #F5F5F5; color: var(--muted); }
+    .status-terlambat { background: #FFEBEE; color: var(--danger); }
+    .status-pending { background: #FFFDE7; color: #F57F17; }
+
+    /* Buttons */
+    .btn {
+      padding: 7px 14px; border-radius: 8px; border: none; cursor: pointer;
+      font-family: inherit; font-size: .82rem; font-weight: 600; transition: opacity .15s;
+    }
+    .btn:hover { opacity: .85; }
+    .btn-primary { background: var(--primary); color: white; }
+    .btn-success { background: var(--secondary); color: white; }
+    .btn-danger { background: var(--danger); color: white; }
+    .btn-warning { background: var(--warning); color: white; }
+    .btn-sm { padding: 5px 10px; font-size: .78rem; }
+
+    /* Forms */
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .form-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+    .form-group.full { grid-column: 1 / -1; }
+    .form-group label { font-size: .85rem; font-weight: 600; color: var(--text); }
+    .form-group input, .form-group select, .form-group textarea {
+      padding: 10px 12px; border: 1.5px solid #e0e0e0; border-radius: 10px;
+      font-size: .9rem; font-family: inherit; outline: none; transition: border .2s;
+    }
+    .form-group input:focus, .form-group select:focus, .form-group textarea:focus { border-color: var(--primary); }
+    .form-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }
+
+    /* Spinner */
+    .spinner { display: inline-block; width: 18px; height: 18px; border: 2.5px solid rgba(255,255,255,.3); border-top-color: white; border-radius: 50%; animation: spin .7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Toast */
+    #toast {
+      position: fixed; bottom: 28px; right: 28px; background: var(--text);
+      color: white; padding: 12px 20px; border-radius: 10px; font-size: .9rem;
+      font-weight: 500; box-shadow: 0 4px 20px rgba(0,0,0,.2); display: none;
+      z-index: 9999; max-width: 340px;
+    }
+    #toast.success { background: var(--secondary); }
+    #toast.error { background: var(--danger); }
+
+    /* Modal */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,.4);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 500; opacity: 0; pointer-events: none; transition: opacity .2s;
+    }
+    .modal-overlay.open { opacity: 1; pointer-events: all; }
+    .modal {
+      background: var(--surface); border-radius: 16px; padding: 28px;
+      width: 100%; max-width: 440px; box-shadow: 0 20px 60px rgba(0,0,0,.2);
+      transform: translateY(20px); transition: transform .2s;
+    }
+    .modal-overlay.open .modal { transform: translateY(0); }
+    .modal h3 { font-size: 1.1rem; font-weight: 700; margin-bottom: 14px; }
+    .modal textarea { width: 100%; padding: 10px; border: 1.5px solid #e0e0e0; border-radius: 10px; font-family: inherit; font-size: .9rem; resize: vertical; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+
+    @media (max-width: 768px) {
+      .sidebar { display: none; }
+      .summary-grid { grid-template-columns: 1fr; }
+      .form-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Auth Overlay -->
+<div id="auth-overlay">
+  <div class="auth-card">
+    <h1>🏦 Kas Kelas</h1>
+    <p>Login sebagai Bendahara</p>
+    <input type="email" id="login-email" placeholder="Email bendahara" autocomplete="email" />
+    <input type="password" id="login-pass" placeholder="Password" autocomplete="current-password" />
+    <button id="login-btn">Masuk</button>
+    <p id="auth-error"></p>
+  </div>
+</div>
+
+<!-- Reject Modal -->
+<div class="modal-overlay" id="reject-modal">
+  <div class="modal">
+    <h3>Tolak Pembayaran</h3>
+    <p style="color:var(--muted);font-size:.88rem;margin-bottom:12px;">Masukkan alasan penolakan (opsional):</p>
+    <textarea id="reject-reason" rows="3" placeholder="Alasan penolakan..."></textarea>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeRejectModal()">Batal</button>
+      <button class="btn btn-danger" id="confirm-reject-btn" onclick="confirmReject()">Tolak</button>
+    </div>
+  </div>
+</div>
+
+<!-- Main App -->
+<div id="app">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <span>💰 Kas Kelas</span>
+      <small>Admin Bendahara</small>
+    </div>
+    <button class="nav-item active" data-section="dashboard" onclick="navigate('dashboard', this)">
+      <span class="nav-icon">📊</span> Dashboard
+    </button>
+    <button class="nav-item" data-section="verifikasi" onclick="navigate('verifikasi', this)">
+      <span class="nav-icon">✅</span> Verifikasi
+      <span class="badge" id="pending-badge" style="display:none">0</span>
+    </button>
+    <button class="nav-item" data-section="buat-iuran" onclick="navigate('buat-iuran', this)">
+      <span class="nav-icon">📋</span> Buat Tagihan
+    </button>
+    <button class="nav-item" data-section="transaksi" onclick="navigate('transaksi', this)">
+      <span class="nav-icon">💳</span> Catat Transaksi
+    </button>
+    <button class="nav-item" data-section="siswa" onclick="navigate('siswa', this)">
+      <span class="nav-icon">👥</span> Daftar Siswa
+    </button>
+    <div class="sidebar-footer">
+      <button id="logout-btn" onclick="handleLogout()">⬅ Keluar</button>
+    </div>
+  </aside>
+
+  <!-- Main Content -->
+  <div class="main">
+    <div class="topbar">
+      <h2 id="page-title">Dashboard</h2>
+      <span class="topbar-user" id="user-email"></span>
+    </div>
+    <div class="content">
+
+      <!-- ── DASHBOARD ── -->
+      <div class="section active" id="section-dashboard">
+        <div class="summary-grid">
+          <div class="summary-card saldo">
+            <div class="sc-label">Saldo Kas</div>
+            <div class="sc-value" id="ds-saldo">—</div>
+          </div>
+          <div class="summary-card masuk">
+            <div class="sc-label">Total Pemasukan</div>
+            <div class="sc-value" id="ds-masuk">—</div>
+          </div>
+          <div class="summary-card keluar">
+            <div class="sc-label">Total Pengeluaran</div>
+            <div class="sc-value" id="ds-keluar">—</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Transaksi Terakhir</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tanggal</th><th>Deskripsi</th><th>Oleh</th><th>Tipe</th><th>Nominal</th>
+                </tr>
+              </thead>
+              <tbody id="tx-body">
+                <tr class="empty-row"><td colspan="5">Memuat...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── VERIFIKASI ── -->
+      <div class="section" id="section-verifikasi">
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+            <div class="card-title" style="margin-bottom:0">Pembayaran Menunggu Konfirmasi</div>
+            <button class="btn btn-primary btn-sm" onclick="loadVerifikasi()">🔄 Refresh</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Nama Siswa</th><th>NIS</th><th>Tagihan</th><th>Nominal</th><th>Aksi</th></tr>
+              </thead>
+              <tbody id="verif-body">
+                <tr class="empty-row"><td colspan="5">Memuat...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── BUAT IURAN ── -->
+      <div class="section" id="section-buat-iuran">
+        <div class="card">
+          <div class="card-title">Buat Tagihan Iuran Baru</div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Judul Iuran *</label>
+              <input type="text" id="iuran-title" placeholder="Contoh: Kas Minggu Ini" />
+            </div>
+            <div class="form-group">
+              <label>Nominal (Rp) *</label>
+              <input type="number" id="iuran-amount" placeholder="Contoh: 10000" min="0" />
+            </div>
+            <div class="form-group">
+              <label>Batas Bayar *</label>
+              <input type="date" id="iuran-due" />
+            </div>
+            <div class="form-group full">
+              <label>Deskripsi</label>
+              <input type="text" id="iuran-desc" placeholder="Keterangan tambahan (opsional)" />
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-primary" id="create-iuran-btn" onclick="createIuran()">📋 Buat Tagihan</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Daftar Iuran</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Judul</th><th>Nominal</th><th>Batas Bayar</th><th>Sudah Bayar</th><th>Belum Bayar</th><th>Terkumpul</th></tr>
+              </thead>
+              <tbody id="iuran-list-body">
+                <tr class="empty-row"><td colspan="6">Memuat...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── CATAT TRANSAKSI ── -->
+      <div class="section" id="section-transaksi">
+        <div class="card">
+          <div class="card-title">Catat Transaksi Manual</div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Tipe *</label>
+              <select id="tx-type">
+                <option value="pemasukan">📈 Pemasukan</option>
+                <option value="pengeluaran">📉 Pengeluaran</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Nominal (Rp) *</label>
+              <input type="number" id="tx-amount" placeholder="0" min="0" />
+            </div>
+            <div class="form-group full">
+              <label>Deskripsi *</label>
+              <input type="text" id="tx-desc" placeholder="Keterangan transaksi" />
+            </div>
+            <div class="form-group">
+              <label>Tanggal *</label>
+              <input type="date" id="tx-date" />
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-primary" id="save-tx-btn" onclick="saveTransaksi()">💾 Simpan</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── DAFTAR SISWA ── -->
+      <div class="section" id="section-siswa">
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+            <div class="card-title" style="margin-bottom:0">Daftar Siswa & Tunggakan</div>
+            <button class="btn btn-primary btn-sm" onclick="loadSiswa()">🔄 Refresh</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Nama</th><th>NIS</th><th>Total Tagihan</th><th>Sudah Lunas</th><th>Belum Lunas</th><th>Tunggakan</th></tr>
+              </thead>
+              <tbody id="siswa-body">
+                <tr class="empty-row"><td colspan="6">Memuat...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /content -->
+  </div><!-- /main -->
+</div><!-- /app -->
+
+<div id="toast"></div>
+
+<script>
+// ══════════════════════════════════════
+//  CONFIG — Ganti dengan Supabase kamu
+// ══════════════════════════════════════
+const SUPABASE_URL = 'YOUR_SUPABASE_URL';
+const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
+
+const { createClient } = supabase;
+const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// ── Utils ──
+const fmt = (n) =>
+  new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(n || 0);
+
+const fmtDate = (s) => {
+  if (!s) return '-';
+  const d = new Date(s);
+  return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
+};
+
+function showToast(msg, type = '') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = type;
+  t.style.display = 'block';
+  setTimeout(() => { t.style.display = 'none'; }, 3500);
+}
+
+function setLoading(btnId, loading) {
+  const btn = document.getElementById(btnId);
+  if (!btn) return;
+  btn.disabled = loading;
+  btn.innerHTML = loading ? '<span class="spinner"></span>' : btn.dataset.label || btn.innerHTML;
+}
+
+// ── Auth ──
+document.getElementById('login-btn').onclick = async () => {
+  const email = document.getElementById('login-email').value.trim();
+  const pass = document.getElementById('login-pass').value.trim();
+  const errEl = document.getElementById('auth-error');
+  errEl.style.display = 'none';
+  setLoading('login-btn', true);
+  document.getElementById('login-btn').dataset.label = 'Masuk';
+
+  const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
+  if (error) {
+    errEl.textContent = error.message;
+    errEl.style.display = 'block';
+    setLoading('login-btn', false);
+    document.getElementById('login-btn').textContent = 'Masuk';
+    return;
+  }
+
+  // Check role
+  const { data: profile } = await sb.from('profiles').select('role, full_name').eq('id', data.user.id).single();
+  if (!profile || profile.role !== 'bendahara') {
+    await sb.auth.signOut();
+    errEl.textContent = 'Akses ditolak. Halaman ini hanya untuk bendahara.';
+    errEl.style.display = 'block';
+    document.getElementById('login-btn').textContent = 'Masuk';
+    document.getElementById('login-btn').disabled = false;
+    return;
+  }
+
+  document.getElementById('user-email').textContent = profile.full_name || data.user.email;
+  bootApp();
+};
+
+async function handleLogout() {
+  await sb.auth.signOut();
+  location.reload();
+}
+
+// ── Navigation ──
+const titles = {
+  'dashboard': 'Dashboard',
+  'verifikasi': 'Verifikasi Pembayaran',
+  'buat-iuran': 'Buat Tagihan Iuran',
+  'transaksi': 'Catat Transaksi',
+  'siswa': 'Daftar Siswa',
+};
+
+const loaders = {
+  'dashboard': loadDashboard,
+  'verifikasi': loadVerifikasi,
+  'buat-iuran': loadIuranList,
+  'transaksi': () => { document.getElementById('tx-date').value = new Date().toISOString().split('T')[0]; },
+  'siswa': loadSiswa,
+};
+
+function navigate(section, el) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById(`section-${section}`).classList.add('active');
+  el.classList.add('active');
+  document.getElementById('page-title').textContent = titles[section];
+  if (loaders[section]) loaders[section]();
+}
+
+// ── Boot ──
+async function bootApp() {
+  document.getElementById('auth-overlay').style.display = 'none';
+  document.getElementById('app').style.display = 'flex';
+  loadDashboard();
+  loadVerifikasi();
+}
+
+sb.auth.onAuthStateChange((event, session) => {
+  if (event === 'SIGNED_IN' && session) {
+    // Already handled above
+  }
+});
+
+// Auto-login if session exists
+(async () => {
+  const { data: { session } } = await sb.auth.getSession();
+  if (session) {
+    const { data: profile } = await sb.from('profiles').select('role, full_name').eq('id', session.user.id).single();
+    if (profile?.role === 'bendahara') {
+      document.getElementById('user-email').textContent = profile.full_name || session.user.email;
+      bootApp();
+    } else {
+      await sb.auth.signOut();
+    }
+  }
+})();
+
+// ── Dashboard ──
+async function loadDashboard() {
+  const { data: kas } = await sb.from('kas_summary').select().single();
+  if (kas) {
+    document.getElementById('ds-saldo').textContent = fmt(kas.saldo);
+    document.getElementById('ds-masuk').textContent = fmt(kas.total_pemasukan);
+    document.getElementById('ds-keluar').textContent = fmt(kas.total_pengeluaran);
+  }
+
+  const { data: txs } = await sb.from('transactions')
+    .select('*, profiles(full_name)')
+    .order('date', { ascending: false })
+    .limit(15);
+
+  const body = document.getElementById('tx-body');
+  if (!txs || txs.length === 0) {
+    body.innerHTML = '<tr class="empty-row"><td colspan="5">Belum ada transaksi</td></tr>';
+    return;
+  }
+  body.innerHTML = txs.map(tx => `
+    <tr>
+      <td>${fmtDate(tx.date)}</td>
+      <td>${tx.description || '-'}</td>
+      <td>${tx.profiles?.full_name || '-'}</td>
+      <td>
+        <span class="status-badge ${tx.type === 'pemasukan' ? 'status-lunas' : 'status-terlambat'}">
+          ${tx.type === 'pemasukan' ? '↑ Pemasukan' : '↓ Pengeluaran'}
+        </span>
+      </td>
+      <td style="font-weight:600;color:${tx.type === 'pemasukan' ? 'var(--secondary)' : 'var(--danger)'}">
+        ${tx.type === 'pemasukan' ? '+' : '-'}${fmt(tx.amount)}
+      </td>
+    </tr>
+  `).join('');
+}
+
+// ── Verifikasi ──
+let rejectPaymentId = null;
+
+async function loadVerifikasi() {
+  const { data } = await sb.from('iuran_payments')
+    .select('*, profiles(full_name, nis), iuran(title, amount)')
+    .eq('notes', 'menunggu_konfirmasi')
+    .neq('status', 'lunas');
+
+  const cnt = data?.length || 0;
+  const badge = document.getElementById('pending-badge');
+  badge.textContent = cnt;
+  badge.style.display = cnt > 0 ? 'inline' : 'none';
+
+  const body = document.getElementById('verif-body');
+  if (!data || data.length === 0) {
+    body.innerHTML = '<tr class="empty-row"><td colspan="5">✅ Tidak ada pembayaran menunggu konfirmasi</td></tr>';
+    return;
+  }
+
+  body.innerHTML = data.map(p => `
+    <tr>
+      <td><strong>${p.profiles?.full_name || '-'}</strong></td>
+      <td>${p.profiles?.nis || '-'}</td>
+      <td>${p.iuran?.title || '-'}</td>
+      <td style="font-weight:600;color:var(--primary)">${fmt(p.iuran?.amount)}</td>
+      <td style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-success btn-sm" onclick="konfirmasiLunas('${p.id}', ${p.iuran?.amount || 0}, '${p.iuran?.title || ''}', '${p.profiles?.full_name || ''}')">
+          ✅ Konfirmasi Lunas
+        </button>
+        <button class="btn btn-danger btn-sm" onclick="openRejectModal('${p.id}')">
+          ✖ Tolak
+        </button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+async function konfirmasiLunas(paymentId, amount, iuranTitle, siswaName) {
+  const { data: { user } } = await sb.auth.getUser();
+  const { error: e1 } = await sb.from('iuran_payments').update({
+    status: 'lunas',
+    confirmed_by: user.id,
+    paid_at: new Date().toISOString(),
+    notes: null,
+  }).eq('id', paymentId);
+
+  if (e1) { showToast('Gagal konfirmasi: ' + e1.message, 'error'); return; }
+
+  await sb.from('transactions').insert({
+    created_by: user.id,
+    type: 'pemasukan',
+    amount: amount,
+    description: `Iuran ${iuranTitle} - ${siswaName}`,
+    date: new Date().toISOString(),
+  });
+
+  showToast('✅ Pembayaran dikonfirmasi lunas!', 'success');
+  loadVerifikasi();
+  loadDashboard();
+}
+
+function openRejectModal(paymentId) {
+  rejectPaymentId = paymentId;
+  document.getElementById('reject-reason').value = '';
+  document.getElementById('reject-modal').classList.add('open');
+}
+
+function closeRejectModal() {
+  document.getElementById('reject-modal').classList.remove('open');
+  rejectPaymentId = null;
+}
+
+async function confirmReject() {
+  if (!rejectPaymentId) return;
+  const reason = document.getElementById('reject-reason').value.trim();
+
+  const { error } = await sb.from('iuran_payments').update({
+    notes: reason ? `ditolak: ${reason}` : null,
+  }).eq('id', rejectPaymentId);
+
+  if (error) { showToast('Gagal menolak: ' + error.message, 'error'); return; }
+
+  showToast('Pembayaran ditolak.', '');
+  closeRejectModal();
+  loadVerifikasi();
+}
+
+// ── Buat Iuran ──
+async function createIuran() {
+  const title = document.getElementById('iuran-title').value.trim();
+  const amount = parseFloat(document.getElementById('iuran-amount').value);
+  const due = document.getElementById('iuran-due').value;
+  const desc = document.getElementById('iuran-desc').value.trim();
+
+  if (!title || !amount || !due) { showToast('Lengkapi judul, nominal, dan batas bayar.', 'error'); return; }
+
+  setLoading('create-iuran-btn', true);
+  document.getElementById('create-iuran-btn').dataset.label = '📋 Buat Tagihan';
+
+  const { data: { user } } = await sb.auth.getUser();
+  const { error } = await sb.from('iuran').insert({
+    created_by: user.id,
+    title, amount,
+    due_date: new Date(due).toISOString(),
+    description: desc || null,
+  });
+
+  document.getElementById('create-iuran-btn').disabled = false;
+  document.getElementById('create-iuran-btn').textContent = '📋 Buat Tagihan';
+
+  if (error) { showToast('Gagal: ' + error.message, 'error'); return; }
+
+  showToast('✅ Tagihan berhasil dibuat!', 'success');
+  document.getElementById('iuran-title').value = '';
+  document.getElementById('iuran-amount').value = '';
+  document.getElementById('iuran-due').value = '';
+  document.getElementById('iuran-desc').value = '';
+  loadIuranList();
+}
+
+async function loadIuranList() {
+  const { data } = await sb.from('iuran_summary').select().order('due_date', { ascending: false });
+  const body = document.getElementById('iuran-list-body');
+  if (!data || data.length === 0) {
+    body.innerHTML = '<tr class="empty-row"><td colspan="6">Belum ada iuran</td></tr>';
+    return;
+  }
+  body.innerHTML = data.map(i => `
+    <tr>
+      <td><strong>${i.title}</strong></td>
+      <td>${fmt(i.amount)}</td>
+      <td>${fmtDate(i.due_date)}</td>
+      <td style="color:var(--secondary);font-weight:600">${i.sudah_bayar || 0}</td>
+      <td style="color:var(--danger);font-weight:600">${i.belum_bayar || 0}</td>
+      <td style="color:var(--primary);font-weight:600">${fmt(i.total_terkumpul)}</td>
+    </tr>
+  `).join('');
+}
+
+// ── Catat Transaksi ──
+async function saveTransaksi() {
+  const type = document.getElementById('tx-type').value;
+  const amount = parseFloat(document.getElementById('tx-amount').value);
+  const desc = document.getElementById('tx-desc').value.trim();
+  const date = document.getElementById('tx-date').value;
+
+  if (!amount || !desc || !date) { showToast('Lengkapi semua field.', 'error'); return; }
+
+  setLoading('save-tx-btn', true);
+  document.getElementById('save-tx-btn').dataset.label = '💾 Simpan';
+
+  const { data: { user } } = await sb.auth.getUser();
+  const { error } = await sb.from('transactions').insert({
+    created_by: user.id,
+    type, amount,
+    description: desc,
+    date: new Date(date).toISOString(),
+  });
+
+  document.getElementById('save-tx-btn').disabled = false;
+  document.getElementById('save-tx-btn').textContent = '💾 Simpan';
+
+  if (error) { showToast('Gagal: ' + error.message, 'error'); return; }
+
+  showToast('✅ Transaksi berhasil dicatat!', 'success');
+  document.getElementById('tx-amount').value = '';
+  document.getElementById('tx-desc').value = '';
+  loadDashboard();
+}
+
+// ── Daftar Siswa ──
+async function loadSiswa() {
+  const { data } = await sb.from('siswa_payment_summary')
+    .select()
+    .order('total_tunggakan', { ascending: false });
+
+  const body = document.getElementById('siswa-body');
+  if (!data || data.length === 0) {
+    body.innerHTML = '<tr class="empty-row"><td colspan="6">Belum ada data siswa</td></tr>';
+    return;
+  }
+
+  body.innerHTML = data.map(s => `
+    <tr>
+      <td><strong>${s.full_name || '-'}</strong></td>
+      <td>${s.nis || '-'}</td>
+      <td>${fmt(s.total_tagihan)}</td>
+      <td><span class="status-badge status-lunas">${s.sudah_lunas || 0} tagihan</span></td>
+      <td><span class="status-badge status-${(s.belum_lunas || 0) > 0 ? 'terlambat' : 'lunas'}">${s.belum_lunas || 0} tagihan</span></td>
+      <td style="font-weight:700;color:${(s.total_tunggakan || 0) > 0 ? 'var(--danger)' : 'var(--secondary)'}">
+        ${fmt(s.total_tunggakan)}
+      </td>
+    </tr>
+  `).join('');
+}
+</script>
+</body>
+</html>
